@@ -7,3 +7,4 @@ python-dotenv
 websockets
 pytest
 httpx
+loguru
