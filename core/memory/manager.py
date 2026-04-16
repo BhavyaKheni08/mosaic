@@ -4,7 +4,7 @@ from .schema import NodeLabel, EdgeType
 from .utils import get_neo4j_driver, get_qdrant_client, logger, fallback_logger, check_factual_contradiction
 
 class GraphMemoryManager:
-    def __init__(self):
+    def __init__(self, neo4j_creds=None, qdrant_creds=None):
         self.neo4j_driver = get_neo4j_driver()
         self.qdrant_client = get_qdrant_client()
         self.collection_name = "claims"
@@ -37,9 +37,14 @@ class GraphMemoryManager:
                     for hit in search_result:
                         old_content = hit.payload.get("content", "")
                         old_id = hit.payload.get("id", "")
-                        if check_factual_contradiction(content, old_content):
+                        status_str = check_factual_contradiction(content, old_content, claim.id)
+                        if status_str == 'YES':
                             contradicted_claim_id = old_id
                             logger.info(f"Contradiction found between new claim and old claim '{old_id}'.")
+                            break
+                        elif status_str == 'UNCERTAIN':
+                            contradicted_claim_id = old_id
+                            claim_status = 'Uncertain'
                             break
                 except Exception as e:
                     logger.error(f"[GraphMemoryManager.store_claim] Error: Qdrant Search Failed. Details: {e}")
@@ -49,10 +54,11 @@ class GraphMemoryManager:
                 with self.neo4j_driver.session() as session:
                     # Create new claim node
                     query = f"""
-                    CREATE (c:{NodeLabel.CLAIM.value} {{id: $id, content: $content, source_id: $source_id, agent_id: $agent_id, timestamp: $timestamp}})
+                    CREATE (c:{NodeLabel.CLAIM.value} {{id: $id, content: $content, source_id: $source_id, agent_id: $agent_id, timestamp: $timestamp, status: $status}})
                     RETURN c.id
                     """
-                    session.run(query, id=claim.id, content=claim.content, source_id=claim.source_id, agent_id=claim.agent_id, timestamp=claim.timestamp.isoformat())
+                    status_val = 'Uncertain' if 'claim_status' in locals() and claim_status == 'Uncertain' else 'Verified'
+                    session.run(query, id=claim.id, content=claim.content, source_id=claim.source_id, agent_id=claim.agent_id, timestamp=claim.timestamp.isoformat(), status=status_val)
                     
                     if contradicted_claim_id:
                         # Create CONTRADICTS edge

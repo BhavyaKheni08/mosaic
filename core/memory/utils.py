@@ -70,11 +70,11 @@ def get_qdrant_client():
         logger.error(f"[get_qdrant_client] Error: Qdrant Connection Failed. Check URL. Details: {e}")
         return None
 
-def check_factual_contradiction(new_claim: str, old_claim: str) -> bool:
+def check_factual_contradiction(new_claim: str, old_claim: str, claim_id: str) -> str:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         logger.error("[check_factual_contradiction] Error: GEMINI_API_KEY not set. Cannot run LLM judge.")
-        return False
+        return "NO"
         
     try:
         genai.configure(api_key=api_key)
@@ -91,7 +91,9 @@ def check_factual_contradiction(new_claim: str, old_claim: str) -> bool:
         """
         response = model.generate_content(prompt)
         text = response.text.strip().upper()
-        return 'YES' in text
+        if 'YES' in text:
+            return "YES"
+        return "NO"
     except Exception as e:
-        logger.error(f"[check_factual_contradiction] Error: LLM call failed. {e}")
-        return False
+        logger.critical(f"[ConflictDetector] LLM Judge timed out. Defaulting to 'Uncertain' status for Claim #{claim_id}.")
+        return "UNCERTAIN"
